@@ -18,8 +18,8 @@ import os
 import sys
 from datetime import datetime, timezone
 
-from privacy_news_monitor.collector import create_collector
-from privacy_news_monitor.formatter import create_formatter
+from privacy_news_algorithm.collector import create_collector
+from privacy_news_algorithm.formatter import create_formatter
 
 
 def main():

@@ -16,6 +16,7 @@ import socket
 
 
 
+
 @dataclass
 class Article:
     """뉴스 기사 데이터 클래스"""
@@ -56,14 +57,23 @@ class NewsCollector:
         self.mediastack_key = os.environ.get("MEDIASTACK_API_KEY")
         self.currents_key = os.environ.get("CURRENTS_API_KEY")
         self.newsdata_key = os.environ.get("NEWSDATA_API_KEY")
+        self.rapidapi_key = os.environ.get("RAPIDAPI_KEY")
         #self.bing_key = os.environ.get("BING_NEWS_API_KEY")
+
         
         self.articles: List[Article] = []
 
     def _sleep_between_requests(self, seconds: float = 0.4):
         time.sleep(seconds)
 
-
+    def _make_request_with_headers(self, url: str, headers: Dict[str, str]) -> Optional[Dict]:
+        try:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=30) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except (urllib.error.URLError, json.JSONDecodeError, TimeoutError, socket.timeout) as e:
+            print(f"요청 실패: {e} | URL: {url}")
+            return None
 
 
     def _make_request(self, url: str) -> Optional[Dict]:
@@ -84,6 +94,8 @@ class NewsCollector:
             "%Y-%m-%d",
             "%a, %d %b %Y %H:%M:%S %Z",
             "%a, %d %b %Y %H:%M:%S %z",
+            "%Y-%m-%dT%H:%M:%S%z",
+            "%Y-%m-%dT%H:%M:%S.%f%z",
         ]
         for fmt in formats:
             try:
@@ -178,6 +190,9 @@ class NewsCollector:
 
         return articles
 
+
+
+
     def collect_from_newsapi(self, query: str, max_pages: int = 3, page_size: int = 100) -> List[Article]:
         """NewsAPI에서 뉴스 수집 (pagination 지원: page)"""
         if not self.newsapi_key:
@@ -267,7 +282,7 @@ class NewsCollector:
 
         return articles
 
-    def collect_from_currents(self, query: str, max_pages: int = 5) -> List[Article]:
+    def collect_from_currents(self, query: str, max_pages: int = 50) -> List[Article]:
         """Currents API에서 뉴스 수집 (pagination: page_number)"""
         if not self.currents_key:
             return []
@@ -358,56 +373,136 @@ class NewsCollector:
             self._sleep_between_requests(0.5)
 
         return articles
-      
 
-    def collect_from_bing(self, query: str) -> List[Article]:
-        """Bing News Search API에서 뉴스 수집 - 1000 transactions/month"""
-        if not self.bing_key:
+
+
+    def collect_from_rapidapi(
+        self,
+        query: str,
+        host: str,
+        endpoint: str,
+        max_pages: int = 5,
+        page_size: int = 50,
+        query_param: str = "q",
+        page_param: Optional[str] = "page",
+        page_size_param: str = "limit",
+        items_path: str = "articles",
+        title_field: str = "title",
+        url_field: str = "url",
+        date_field: str = "published",
+        summary_field: str = "description",
+        source_field: str = "source",
+        author_field: Optional[str] = "author",
+        extra_params: Optional[Dict[str, str]] = None,
+        source_name: str = "RapidAPI",
+    ) -> List[Article]:
+        """
+        Generic RapidAPI news collection with configurable parameters
+        
+        Args:
+            query: Search query
+            host: RapidAPI host (e.g., "real-time-news-data.p.rapidapi.com")
+            endpoint: Full API endpoint URL
+            max_pages: Maximum number of pages to fetch
+            page_size: Results per page
+            query_param: Query parameter name (e.g., "q", "query", "keyword")
+            page_param: Page parameter name (None if no pagination)
+            page_size_param: Page size parameter name
+            items_path: JSON path to articles array (e.g., "data", "articles", "results")
+            title_field: Field name for article title
+            url_field: Field name for article URL
+            date_field: Field name for publish date
+            summary_field: Field name for article summary
+            source_field: Field name for source
+            author_field: Field name for author (optional)
+            extra_params: Additional query parameters
+            source_name: Default source name if not found in data
+        """
+        if not self.rapidapi_key:
             return []
 
-        articles = []
+        articles: List[Article] = []
         encoded_query = urllib.parse.quote(query)
-        url = f"https://api.bing.microsoft.com/v7.0/news/search?q={encoded_query}&count=50&mkt=en-US"
         
-        try:
-            req = urllib.request.Request(
-                url,
-                headers={
-                    "User-Agent": "PrivacyNewsMonitor/1.0",
-                    "Ocp-Apim-Subscription-Key": self.bing_key
-                }
-            )
-            with urllib.request.urlopen(req, timeout=30) as response:
-                data = json.loads(response.read().decode("utf-8"))
-        except (urllib.error.URLError, json.JSONDecodeError) as e:
-            print(f"Bing API 요청 실패: {e}")
-            return articles
+        headers = {
+            "X-RapidAPI-Key": self.rapidapi_key,
+            "X-RapidAPI-Host": host,
+            "User-Agent": "PrivacyNewsMonitor/1.0"
+        }
 
-        if not data or "value" not in data:
-            return articles
+        for page in range(1, max_pages + 1):
+            # Build URL with parameters
+            params = {query_param: encoded_query, page_size_param: str(page_size)}
+            
+            if page_param:
+                params[page_param] = str(page)
+            
+            if extra_params:
+                params.update(extra_params)
+            
+            query_string = urllib.parse.urlencode(params)
+            url = f"{endpoint}?{query_string}"
 
-        for item in data["value"]:
-            published_date = self._parse_date(item.get("datePublished", ""))
-            if not published_date:
-                continue
+            data = self._make_request_with_headers(url, headers)
+            
+            if not data:
+                break
 
-            if not self._is_within_time_window(published_date):
-                continue
+            # Navigate to items using the items_path (supports nested paths like "data.articles")
+            items = data
+            for key in items_path.split("."):
+                items = items.get(key, []) if isinstance(items, dict) else []
+                if not items:
+                    break
 
-            article = Article(
-                title=item.get("name", ""),
-                url=item.get("url", ""),
-                source=item.get("provider", [{}])[0].get("name", "Bing News"),
-                published_date=published_date,
-                summary=item.get("description", ""),
-                category=self._categorize_article(
-                    item.get("name", ""),
-                    item.get("description", "")
-                ),
-            )
-            articles.append(article)
+            if not items or not isinstance(items, list):
+                break
+
+            for item in items:
+                # Extract date
+                date_str = item.get(date_field, "")
+                published_date = self._parse_date(date_str) if date_str else None
+                
+                if not published_date or not self._is_within_time_window(published_date):
+                    continue
+
+                # Extract source - handle nested source field like "source.name"
+                source = source_name
+                if "." in source_field:
+                    parts = source_field.split(".")
+                    source_data = item
+                    for part in parts:
+                        source_data = source_data.get(part, {}) if isinstance(source_data, dict) else {}
+                    source = source_data if isinstance(source_data, str) else source_name
+                else:
+                    source = item.get(source_field, source_name)
+
+                # Extract author if specified
+                author = None
+                if author_field:
+                    author = item.get(author_field)
+
+                articles.append(Article(
+                    title=item.get(title_field, ""),
+                    url=item.get(url_field, ""),
+                    source=source if source else source_name,
+                    published_date=published_date,
+                    author=author,
+                    summary=item.get(summary_field, ""),
+                    category=self._categorize_article(
+                        item.get(title_field, ""),
+                        item.get(summary_field, "")
+                    ),
+                ))
+
+            # If fewer items than page_size, likely last page
+            if len(items) < page_size:
+                break
+
+            self._sleep_between_requests(0.5)
 
         return articles
+      
 
     def collect_all(self) -> List[Article]:
         """모든 소스에서 뉴스 수집 - Now includes 6 sources instead of 2"""
@@ -450,12 +545,33 @@ class NewsCollector:
                     seen_urls.add(article.url)
                     all_articles.append(article)
 
-            # Bing News에서 수집
-            bing_articles = self.collect_from_bing(keyword)
-            for article in bing_articles:
-                if article.url not in seen_urls:
-                    seen_urls.add(article.url)
-                    all_articles.append(article)
+            # RapidAPI에서 수집 (Real-Time News Data)
+            try:
+                rapidapi_articles = self.collect_from_rapidapi(
+                    query=keyword,
+                    host="real-time-news-data.p.rapidapi.com",
+                    endpoint="https://real-time-news-data.p.rapidapi.com/search",
+                    max_pages=5,
+                    page_size=50,
+                    query_param="query",
+                    page_param="page",
+                    page_size_param="limit",
+                    items_path="data",
+                    title_field="title",
+                    url_field="link",
+                    date_field="published_datetime_utc",
+                    summary_field="snippet",
+                    source_field="source_name",
+                    extra_params={"lang": "en"},
+                    source_name="RapidAPI-RealTimeNews",
+                )
+                for article in rapidapi_articles:
+                    if article.url not in seen_urls:
+                        seen_urls.add(article.url)
+                        all_articles.append(article)
+            except Exception as e:
+                print(f"RapidAPI 수집 중 오류: {e}")
+
 
         # 날짜순 정렬 (최신순)
         all_articles.sort(key=lambda x: x.published_date, reverse=True)

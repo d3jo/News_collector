@@ -15,9 +15,9 @@ pdfmetrics.registerFont(UnicodeCIDFont("HYSMyeongJo-Medium"))
 
 
 
-from privacy_news_monitor.collector import create_collector, Article
-from privacy_news_monitor.formatter import create_formatter
-from privacy_news_monitor.summarizer import summarize_korean_bullets
+from privacy_news_algorithm.collector import create_collector, Article
+from privacy_news_algorithm.formatter import create_formatter
+from privacy_news_algorithm.summarizer import summarize_korean_bullets
 
 load_dotenv()
 
@@ -64,6 +64,7 @@ openai_ok = bool(os.getenv("OPENAI_API_KEY"))
 mediastack_ok = bool(os.getenv("MEDIASTACK_API_KEY"))
 currents_ok = bool(os.getenv("CURRENTS_API_KEY"))
 newsdata_ok = bool(os.getenv("NEWSDATA_API_KEY"))
+rapidapi_ok = bool(os.getenv("RAPIDAPI_KEY"))
 
 st.sidebar.write(f"GNEWS_API_KEY: {'✅' if gnews_ok else '❌'}")
 st.sidebar.write(f"NEWSAPI_KEY: {'✅' if newsapi_ok else '❌'}")
@@ -71,14 +72,14 @@ st.sidebar.write(f"OPENAI_API_KEY: {'✅' if openai_ok else '❌'}")
 st.sidebar.write(f"MEDIASTACK_API_KEY: {'✅' if mediastack_ok else '❌'}")
 st.sidebar.write(f"CURRENTS_API_KEY: {'✅' if currents_ok else '❌'}")
 st.sidebar.write(f"NEWSDATA_API_KEY: {'✅' if newsdata_ok else '❌'}")
+st.sidebar.write(f"RAPIDAPI_KEY: {'✅' if rapidapi_ok else '❌'}")
+
 
 st.sidebar.divider()
 #use_emoji = st.sidebar.checkbox("Use emoji", value=True)
 format_choice = st.sidebar.selectbox("Output format", ["category", "simple", "detailed"], index=0)
-do_summaries = st.sidebar.checkbox("Summarize each article (Korean bullets)", value=True)
-translate_titles = st.sidebar.checkbox("Translate titles (Korean)", value=True)
-use_strict_filter = st.sidebar.checkbox("Use strict privacy filter", value=True, 
-                                         help="When enabled, filters out loosely-related articles. Disable to see more results.")
+
+
 
 # --- Main controls ---
 st.subheader("Latest Privacy Monitor")
@@ -159,36 +160,46 @@ def dedupe_keep_latest(articles: list[Article]) -> list[Article]:
     return out
 
 def is_privacy_relevant(article: Article) -> bool:
-    """Check if article is actually about privacy topics - RELAXED filter"""
-    # Core privacy keywords - at least one should be present
-    privacy_core = [
-        "privacy", "gdpr", "personal data",
-        "data protection", "privacy policy",
-        "privacy law", "privacy regulation", "privacy breach",
-        "privacy violation", "privacy rights", "data privacy",
-        "personal information", "user data", "surveillance"
-    ]
-    
-    
-    text = ((article.title or "") + " " + (article.summary or "")).lower()
-    title_lower = (article.title or "").lower()
+    """
+    Score-based privacy relevance filter.
+    - Strong privacy terms count more
+    - Adjacent terms count less
+    - Uses title weighting (title hits matter more)
+    """
+    title = (article.title or "").lower()
+    body = ((article.summary or "") + " " + (getattr(article, "description", "") or "")).lower()
+    text = f"{title} {body}"
 
-    
-    # Much more relaxed: just needs ONE privacy keyword anywhere
-    has_privacy_keyword = any(keyword in text for keyword in privacy_core)
-    
-    # If we have a privacy keyword, accept it
-    if has_privacy_keyword:
-        return True
-    
-    # Even if no direct privacy keyword, check for privacy-adjacent terms
-    privacy_adjacent = [
-        "data breach", "cyber security", "cybersecurity", "hack",
-        "data leak", "information security", "user information",
-        "consumer protection", "data law", "data regulation"
+    strong = [
+        "privacy", "gdpr", "ccpa", "cpra", "coppa", "hipaa", "ferpa",
+        "data protection", "personal data", "personal information",
+        "data subject", "consent", "opt out", "right to delete",
+        "data minimization", "purpose limitation", "surveillance",
+        "biometric", "facial recognition", "geolocation", "location data",
+        "data broker", "cookie", "tracking", "adtech"
     ]
-    
-    return any(term in text for term in privacy_adjacent)
+
+    adjacent = [
+        "breach", "leak", "hack", "ransomware", "security incident",
+        "regulator", "enforcement", "fine", "lawsuit", "investigation",
+        "compliance", "audit", "risk assessment", "ai act", "algorithm",
+        "identity theft", "credential", "exposed records", "phishing"
+    ]
+
+    # Scoring
+    score = 0
+
+    # Title hits matter more
+    score += sum(3 for t in strong if t in title)
+    score += sum(1 for t in strong if t in body)
+
+    score += sum(2 for t in adjacent if t in title)
+    score += sum(1 for t in adjacent if t in body)
+
+    # Threshold: lower = looser, higher = stricter
+    return score >= 2
+
+
 
 def pick_20_diverse(articles: list[Article], per_cat: int = 5, total: int = 20) -> list[Article]:
     """Pick diverse articles across categories, avoiding duplicates"""
@@ -278,22 +289,40 @@ if run:
     
     with st.spinner("Collecting latest articles..."):
         articles = []
-        articles.extend(collector.collect_from_gnews(QUERY_SIMPLE))
-        articles.extend(collector.collect_from_newsapi(QUERY_NEWSAPI, max_pages=3))
-        articles.extend(collector.collect_from_mediastack(QUERY_SIMPLE, max_pages=4))
-        articles.extend(collector.collect_from_currents(QUERY_SIMPLE, max_pages=5))
-        articles.extend(collector.collect_from_newsdata(QUERY_SIMPLE, max_pages=10))
+        articles.extend(collector.collect_from_gnews(QUERY_SIMPLE))  # Already max at 100
+        articles.extend(collector.collect_from_newsapi(QUERY_NEWSAPI, max_pages=5))  # 5→500 articles
+        articles.extend(collector.collect_from_mediastack(QUERY_SIMPLE, max_pages=8))  # 8→200 articles
+        articles.extend(collector.collect_from_currents(QUERY_SIMPLE, max_pages=10))  # 10 pages
+        articles.extend(collector.collect_from_newsdata(QUERY_SIMPLE, max_pages=15))  # 15 pages
+        articles.extend(
+            collector.collect_from_rapidapi(
+                QUERY_SIMPLE,
+                host="real-time-news-data.p.rapidapi.com",
+                endpoint="https://real-time-news-data.p.rapidapi.com/search",
+                max_pages=3,  # Increased
+                page_size=10,  # Increased
+                query_param="query",
+                page_param="page",  # Changed from "time_published"
+                page_size_param="limit",
+                items_path="data",
+                title_field="title",
+                url_field="link",
+                date_field="published_datetime_utc",
+                summary_field="snippet",
+                source_field="source_name",
+                extra_params={"lang": "en"},  # Removed "country": "US" to get global news
+                source_name="RapidAPI-RealTimeNews",
+            )
+        )
         
         # Deduplicate first
         articles = dedupe_keep_latest(articles)
         
         # Filter for privacy relevance (optional)
-        if use_strict_filter:
-            privacy_articles = [a for a in articles if is_privacy_relevant(a)]
-            st.info(f"Found {len(articles)} articles, {len(privacy_articles)} are privacy-relevant (strict filter enabled)")
-            articles = privacy_articles
-        else:
-            st.info(f"Found {len(articles)} articles (strict filter disabled)")
+        privacy_articles = [a for a in articles if is_privacy_relevant(a)]
+        st.info(f"Found {len(articles)} articles, {len(privacy_articles)} are privacy-relevant (strict filter enabled)")
+        articles = privacy_articles
+        st.info(f"Found {len(articles)} articles (strict filter disabled)")
         
         # Pick diverse set from articles
         articles = pick_20_diverse(articles, per_cat=5, total=20)
@@ -308,23 +337,22 @@ if run:
     else:
         st.success(f"✅ Collected {len(articles)} privacy-focused articles (diversified across categories).")
 
-    if translate_titles:
-        with st.spinner("제목 한국어로 번역 중..."):
-            for a in articles:
-                try:
-                    a.title = translate_title_ko(a.title)
-                except Exception:
-                    pass
+    
+    with st.spinner("제목 한국어로 번역 중..."):
+        for a in articles:
+            try:
+                a.title = translate_title_ko(a.title)
+            except Exception:
+                pass
 
     # Generate Korean summaries (optional)
-    if do_summaries:
-        with st.spinner("한국어 요약 생성 중..."):
-            for a in articles:
-                seed_text = getattr(a, "summary", None) or getattr(a, "description", None)
-                try:
-                    a.summary = cached_korean_md(a.title, seed_text, a.source)
-                except Exception:
-                    a.summary = None
+    with st.spinner("한국어 요약 생성 중..."):
+        for a in articles:
+            seed_text = getattr(a, "summary", None) or getattr(a, "description", None)
+            try:
+                a.summary = cached_korean_md(a.title, seed_text, a.source)
+            except Exception:
+                a.summary = None
 
 
     formatter = create_formatter(use_emoji=format_choice)
