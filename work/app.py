@@ -26,11 +26,159 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 st.set_page_config(page_title="Privacy News Monitor", page_icon="🛡️", layout="wide")
 
-# Custom CSS to make download button more prominent
-st.markdown("""
+# Initialize theme in session state
+if 'dark_mode' not in st.session_state:
+    st.session_state.dark_mode = True  # Default to dark mode
+
+# Theme toggle function
+def toggle_theme():
+    st.session_state.dark_mode = not st.session_state.dark_mode
+
+# Define color schemes
+if st.session_state.dark_mode:
+    # Dark mode colors
+    bg_color = "#0e1117"
+    secondary_bg = "#262730"
+    text_color = "#fafafa"
+    border_color = "#444"
+    card_bg = "#1e1e1e"
+    header_color = "#fafafa"
+    # Special colors for inputs/buttons in dark mode
+    input_bg = "#262730"
+    input_text = "#fafafa"
+else:
+    # Light mode colors
+    bg_color = "#ffffff"
+    secondary_bg = "#f0f2f6"
+    text_color = "#262730"
+    border_color = "#e0e0e0"
+    card_bg = "#ffffff"
+    header_color = "#262730"
+    # Special colors for inputs/buttons in light mode
+    input_bg = "#ffffff"
+    input_text = "#262730"
+
+# Custom CSS with theme support
+st.markdown(f"""
 <style>
-    /* Make download button bigger and more colorful */
-    .stDownloadButton > button {
+    /* Global theme colors */
+    .stApp {{
+        background-color: {bg_color};
+    }}
+    
+    /* Fix top header area */
+    header[data-testid="stHeader"] {{
+        background-color: {bg_color} !important;
+    }}
+    
+    /* Toolbar at the top */
+    .stApp > header {{
+        background-color: {bg_color} !important;
+    }}
+    
+    /* Main content area */
+    .main .block-container {{
+        background-color: {bg_color} !important;
+    }}
+    
+    /* Main content text */
+    .stApp p, .stApp span, .stApp div {{
+        color: {text_color} !important;
+    }}
+    
+    /* Sidebar styling */
+    [data-testid="stSidebar"] {{
+        background-color: {secondary_bg};
+    }}
+    
+    [data-testid="stSidebar"] p,
+    [data-testid="stSidebar"] span,
+    [data-testid="stSidebar"] div,
+    [data-testid="stSidebar"] label {{
+        color: {text_color} !important;
+    }}
+    
+    /* Markdown content */
+    .stMarkdown {{
+        color: {text_color} !important;
+    }}
+    
+    .stMarkdown p, .stMarkdown span, .stMarkdown li {{
+        color: {text_color} !important;
+    }}
+    
+    /* Headers */
+    h1, h2, h3, h4, h5, h6 {{
+        color: {header_color} !important;
+    }}
+    
+    /* Buttons - primary buttons get white text, sidebar buttons get appropriate color */
+    .stButton > button[kind="primary"] {{
+        color: white !important;
+    }}
+    
+    .stButton > button:not([kind="primary"]) {{
+        color: {input_text} !important;
+        background-color: {input_bg} !important;
+        border: 1px solid {border_color} !important;
+    }}
+    
+    /* Sidebar buttons need dark text in light mode, light text in dark mode */
+    [data-testid="stSidebar"] .stButton > button {{
+        background-color: {input_bg} !important;
+        color: {input_text} !important;
+        border: 1px solid {border_color} !important;
+    }}
+    
+    /* Input fields and text areas */
+    input, textarea {{
+        color: {input_text} !important;
+        background-color: {input_bg} !important;
+        border: 1px solid {border_color} !important;
+    }}
+    
+    /* Select dropdown - fix the white on white issue */
+    select, .stSelectbox select {{
+        color: {input_text} !important;
+        background-color: {input_bg} !important;
+        border: 1px solid {border_color} !important;
+    }}
+    
+    /* Dropdown options */
+    option {{
+        color: {input_text} !important;
+        background-color: {input_bg} !important;
+    }}
+    
+    /* Fix for Streamlit's custom select widget */
+    [data-baseweb="select"] {{
+        background-color: {input_bg} !important;
+    }}
+    
+    [data-baseweb="select"] span,
+    [data-baseweb="select"] div {{
+        color: {input_text} !important;
+    }}
+    
+    /* Caption and small text */
+    .stCaption {{
+        color: {text_color} !important;
+        opacity: 0.7;
+    }}
+    
+    /* Info/Warning/Success boxes */
+    .stAlert {{
+        background-color: {card_bg} !important;
+        border: 1px solid {border_color} !important;
+        color: {text_color} !important;
+    }}
+    
+    .stAlert p, .stAlert div {{
+        color: {text_color} !important;
+    }}
+    
+    /* Download button styling */
+    .stDownloadButton > button {{
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
         color: white !important;
         font-size: 18px !important;
@@ -40,16 +188,65 @@ st.markdown("""
         border: none !important;
         box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4) !important;
         transition: all 0.3s ease !important;
-    }
+    }}
     
-    .stDownloadButton > button:hover {
+    .stDownloadButton > button:hover {{
         transform: translateY(-2px) !important;
         box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6) !important;
-    }
+    }}
     
-    .stDownloadButton > button:active {
+    .stDownloadButton > button:active {{
         transform: translateY(0px) !important;
-    }
+    }}
+    
+    /* Checkbox and radio labels */
+    .stCheckbox label, .stRadio label {{
+        color: {text_color} !important;
+    }}
+    
+    .stCheckbox span, .stRadio span {{
+        color: {text_color} !important;
+    }}
+    
+    /* Selectbox label and text */
+    .stSelectbox label {{
+        color: {text_color} !important;
+    }}
+    
+    .stSelectbox > div > div {{
+        color: {input_text} !important;
+        background-color: {input_bg} !important;
+    }}
+    
+    /* Selectbox dropdown menu */
+    [role="listbox"] {{
+        background-color: {input_bg} !important;
+    }}
+    
+    [role="option"] {{
+        color: {input_text} !important;
+        background-color: {input_bg} !important;
+    }}
+    
+    [role="option"]:hover {{
+        background-color: {border_color} !important;
+    }}
+    
+    /* Code blocks */
+    code {{
+        background-color: {secondary_bg} !important;
+        color: {text_color} !important;
+    }}
+    
+    /* Links */
+    a {{
+        color: #667eea !important;
+    }}
+    
+    /* Spinner */
+    .stSpinner > div {{
+        border-top-color: #667eea !important;
+    }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -76,9 +273,22 @@ st.sidebar.write(f"RAPIDAPI_KEY: {'✅' if rapidapi_ok else '❌'}")
 
 
 st.sidebar.divider()
+
+# Theme display and toggle
+st.sidebar.subheader("🎨 Theme")
+mode_text = "🌙 Dark Mode" if st.session_state.dark_mode else "☀️ Light Mode"
+st.sidebar.write(f"Current: **{mode_text}**")
+
+# Theme toggle button
+theme_button_label = "Switch to ☀️ Light Mode" if st.session_state.dark_mode else "Switch to 🌙 Dark Mode"
+if st.sidebar.button(theme_button_label, use_container_width=True):
+    toggle_theme()
+    st.rerun()
+
+st.sidebar.divider()
+
 #use_emoji = st.sidebar.checkbox("Use emoji", value=True)
 format_choice = st.sidebar.selectbox("Output format", ["category", "simple", "detailed"], index=0)
-
 
 
 # --- Main controls ---
@@ -197,9 +407,7 @@ def is_privacy_relevant(article: Article) -> bool:
     score += sum(1 for t in adjacent if t in body)
 
     # Threshold: lower = looser, higher = stricter
-    return score >= 2
-
-
+    return score >= 3
 
 def pick_20_diverse(articles: list[Article], per_cat: int = 5, total: int = 20) -> list[Article]:
     """Pick diverse articles across categories, avoiding duplicates"""
@@ -289,31 +497,11 @@ if run:
     
     with st.spinner("Collecting latest articles..."):
         articles = []
-        articles.extend(collector.collect_from_gnews(QUERY_SIMPLE))  # Already max at 100
-        articles.extend(collector.collect_from_newsapi(QUERY_NEWSAPI, max_pages=5))  # 5→500 articles
-        articles.extend(collector.collect_from_mediastack(QUERY_SIMPLE, max_pages=8))  # 8→200 articles
-        articles.extend(collector.collect_from_currents(QUERY_SIMPLE, max_pages=10))  # 10 pages
-        articles.extend(collector.collect_from_newsdata(QUERY_SIMPLE, max_pages=15))  # 15 pages
-        articles.extend(
-            collector.collect_from_rapidapi(
-                QUERY_SIMPLE,
-                host="real-time-news-data.p.rapidapi.com",
-                endpoint="https://real-time-news-data.p.rapidapi.com/search",
-                max_pages=3,  # Increased
-                page_size=10,  # Increased
-                query_param="query",
-                page_param="page",  # Changed from "time_published"
-                page_size_param="limit",
-                items_path="data",
-                title_field="title",
-                url_field="link",
-                date_field="published_datetime_utc",
-                summary_field="snippet",
-                source_field="source_name",
-                extra_params={"lang": "en"},  # Removed "country": "US" to get global news
-                source_name="RapidAPI-RealTimeNews",
-            )
-        )
+        articles.extend(collector.collect_from_gnews(QUERY_SIMPLE))
+        articles.extend(collector.collect_from_newsapi(QUERY_NEWSAPI, max_pages=3))
+        articles.extend(collector.collect_from_mediastack(QUERY_SIMPLE, max_pages=4))
+        articles.extend(collector.collect_from_currents(QUERY_SIMPLE, max_pages=5))
+        articles.extend(collector.collect_from_newsdata(QUERY_SIMPLE, max_pages=10))
         
         # Deduplicate first
         articles = dedupe_keep_latest(articles)
@@ -322,8 +510,7 @@ if run:
         privacy_articles = [a for a in articles if is_privacy_relevant(a)]
         st.info(f"Found {len(articles)} articles, {len(privacy_articles)} are privacy-relevant (strict filter enabled)")
         articles = privacy_articles
-        st.info(f"Found {len(articles)} articles (strict filter disabled)")
-        
+
         # Pick diverse set from articles
         articles = pick_20_diverse(articles, per_cat=5, total=20)
 
@@ -332,12 +519,10 @@ if run:
         st.info("• Not enough recent privacy news in the past 48 hours\n• API returned mostly non-privacy content\n• Try disabling 'strict privacy filter' in sidebar\n• Try checking back later")
         st.stop()
 
-    if len(articles) < 20:
-        st.warning(f"Only found {len(articles)} privacy-relevant articles (target: 20). Try disabling strict filter for more results.")
-    else:
-        st.success(f"✅ Collected {len(articles)} privacy-focused articles (diversified across categories).")
 
-    
+    st.info(f"Found {len(articles)} privacy-relevant articles")
+
+
     with st.spinner("제목 한국어로 번역 중..."):
         for a in articles:
             try:
@@ -346,6 +531,7 @@ if run:
                 pass
 
     # Generate Korean summaries (optional)
+
     with st.spinner("한국어 요약 생성 중..."):
         for a in articles:
             seed_text = getattr(a, "summary", None) or getattr(a, "description", None)
