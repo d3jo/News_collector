@@ -7,6 +7,7 @@ from reportlab.lib.pagesizes import LETTER
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import inch
 from textwrap import wrap
+import time
 
 
 from reportlab.pdfbase import pdfmetrics
@@ -468,43 +469,39 @@ def pick_20_diverse(articles: list[Article], per_cat: int = 5, total: int = 20) 
     return out[:total]
 
 
-
-
-
+# FIXED: Use correct OpenAI API method
 @st.cache_data(show_spinner=False)
 def translate_title_ko(title: str) -> str:
-    """✅ FIXED: Use correct OpenAI API"""
     if not title:
         return title
-    
     try:
-        response = client.chat.completions.create(
+        resp = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "You are a translator that converts English news headlines to natural Korean."},
-                {"role": "user", "content": f"""Translate this news headline into natural Korean.
-Rules:
-- Keep proper nouns (company/product/person names) in English if commonly used.
-- Keep it short like a real Korean headline.
-- Output ONLY the translated headline.
-
-Headline: {title}"""}
+                {"role": "system", "content": "You are a translator. Translate headlines to Korean, keeping proper nouns in English when commonly used. Output ONLY the translated headline."},
+                {"role": "user", "content": f"Translate: {title}"}
             ],
-            temperature=0.7,
-            max_tokens=200
+            temperature=0.3,
+            max_tokens=150
         )
-        return response.choices[0].message.content.strip()
+        return resp.choices[0].message.content.strip()
     except Exception as e:
-        print(f"Translation error: {e}")
-        return title  # Return original title if translation fails
+        print(f"Translation failed for '{title}': {e}")
+        st.warning(f"Translation failed: {e}")
+        return title  # Return original if translation fails
 
 
 
 # Cache summaries so reruns don't re-bill you
 @st.cache_data(show_spinner=False)
 def cached_korean_md(title, desc, source):
-    bullets = summarize_korean_bullets(title, desc, source)
-    return "\n".join([f"- {b}" for b in bullets])
+    try:
+        bullets = summarize_korean_bullets(title, desc, source)
+        return "\n".join([f"- {b}" for b in bullets])
+    except Exception as e:
+        print(f"Summarization failed for '{title}': {e}")
+        st.warning(f"Summarization error: {e}")
+        return "(요약 생성 실패)"
 
 if run:
     collector = create_collector(
@@ -516,10 +513,18 @@ if run:
     with st.spinner("Collecting latest articles..."):
         articles = []
         articles.extend(collector.collect_from_gnews(QUERY_SIMPLE))
+        time.sleep(1)  # Add delay
+        
         articles.extend(collector.collect_from_newsapi(QUERY_NEWSAPI, max_pages=3))
+        time.sleep(1)
+        
         articles.extend(collector.collect_from_mediastack(QUERY_SIMPLE, max_pages=4))
-        articles.extend(collector.collect_from_currents(QUERY_SIMPLE, max_pages=5))
-        articles.extend(collector.collect_from_newsdata(QUERY_SIMPLE, max_pages=10))
+        time.sleep(1)
+        
+        articles.extend(collector.collect_from_currents(QUERY_SIMPLE, max_pages=2))  # Reduce pages
+        time.sleep(1)
+        
+        articles.extend(collector.collect_from_newsdata(QUERY_SIMPLE, max_pages=3))  # Reduce pages
         
         # Deduplicate first
         articles = dedupe_keep_latest(articles)
@@ -541,24 +546,27 @@ if run:
     st.info(f"Found {len(articles)} privacy-relevant articles")
 
 
+    # FIXED: Better error handling for translations
     with st.spinner("제목 한국어로 번역 중..."):
-        for a in articles:
+        for i, a in enumerate(articles):
             try:
-                a.title = translate_title_ko(a.title)
+                translated = translate_title_ko(a.title)
+                a.title = translated
+                time.sleep(0.2)
             except Exception as e:
-                print(f"Translation failed for article: {e}")
-                pass
+                print(f"Translation error for article {i}: {e}")
+                # Keep original title
 
-    # Generate Korean summaries (optional)
-
+    # FIXED: Better error handling for summaries
     with st.spinner("한국어 요약 생성 중..."):
-        for a in articles:
+        for i, a in enumerate(articles):
             seed_text = getattr(a, "summary", None) or getattr(a, "description", None)
             try:
-                a.summary = cached_korean_md(a.title, seed_text, a.source)
+                summary = cached_korean_md(a.title, seed_text, a.source)
+                a.summary = summary
             except Exception as e:
-                print(f"Summary generation failed: {e}")
-                a.summary = None
+                print(f"Summarization error for article {i}: {e}")
+                a.summary = "(요약 없음)"
 
 
     formatter = create_formatter(use_emoji=format_choice)
@@ -576,8 +584,6 @@ if run:
     # Eye-catching download button with custom styling
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        pdf_bytes = markdown_to_pdf(output_md)
-
         pdf_bytes = markdown_to_pdf(output_md)
 
         st.download_button(

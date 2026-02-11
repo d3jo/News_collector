@@ -141,7 +141,8 @@ class NewsCollector:
         
         self.articles: List[Article] = []
 
-    def _sleep_between_requests(self, seconds: float = 0.4):
+    def _sleep_between_requests(self, seconds: float = 1.2):
+        """Sleep between requests to avoid rate limits - INCREASED from 1.0 to 1.2"""
         time.sleep(seconds)
 
     def _make_request_with_headers(self, url: str, headers: Dict[str, str]) -> Optional[Dict]:
@@ -149,6 +150,13 @@ class NewsCollector:
             req = urllib.request.Request(url, headers=headers)
             with urllib.request.urlopen(req, timeout=30) as response:
                 return json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            if e.code == 429:
+                print(f"Rate limit (429) hit for: {url}. Sleeping 5 seconds...")
+                time.sleep(5)  # Extra sleep on rate limit
+            else:
+                print(f"HTTP Error {e.code}: {e} | URL: {url}")
+            return None
         except (urllib.error.URLError, json.JSONDecodeError, TimeoutError, socket.timeout) as e:
             print(f"요청 실패: {e} | URL: {url}")
             return None
@@ -158,6 +166,13 @@ class NewsCollector:
             req = urllib.request.Request(url, headers={"User-Agent": "PrivacyNewsMonitor/1.0"})
             with urllib.request.urlopen(req, timeout=30) as response:
                 return json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            if e.code == 429:
+                print(f"Rate limit (429) hit for: {url}. Sleeping 5 seconds...")
+                time.sleep(5)  # Extra sleep on rate limit
+            else:
+                print(f"HTTP Error {e.code}: {e} | URL: {url}")
+            return None
         except (urllib.error.URLError, json.JSONDecodeError, TimeoutError, socket.timeout) as e:
             print(f"요청 실패: {e} | URL: {url}")
             return None
@@ -398,7 +413,7 @@ class NewsCollector:
             if len(items) < page_size:
                 break
 
-            self._sleep_between_requests(0.4)
+            self._sleep_between_requests(1.0)  # Sleep between pages
 
         return articles
 
@@ -442,7 +457,7 @@ class NewsCollector:
             if len(items) < page_size:
                 break
 
-            self._sleep_between_requests(0.5)
+            self._sleep_between_requests(1.2)
 
         return articles
 
@@ -463,6 +478,9 @@ class NewsCollector:
             )
 
             data = self._make_request(url)
+            if not data:
+                break  # Stop on rate limit or error
+                
             items = (data or {}).get("news") or []
             if not items:
                 break
@@ -482,7 +500,7 @@ class NewsCollector:
                     category=self._categorize_article(item.get("title", ""), item.get("description", "")),
                 ))
 
-            self._sleep_between_requests(0.4)
+            self._sleep_between_requests(1.2)
 
         return articles
 
@@ -507,6 +525,9 @@ class NewsCollector:
                 url = f"https://newsdata.io/api/1/news?apikey={self.newsdata_key}&q={encoded_query}&language=en"
 
             data = self._make_request(url)
+            if not data:
+                break  # Stop on rate limit or error
+                
             items = (data or {}).get("results") or []
             if not items:
                 break
@@ -534,7 +555,7 @@ class NewsCollector:
             if not next_page:
                 break
 
-            self._sleep_between_requests(0.5)
+            self._sleep_between_requests(1.2)
 
         return articles
 
@@ -581,7 +602,12 @@ class NewsCollector:
                 params.update(extra_params)
             
             query_string = urllib.parse.urlencode(params)
-            url = f"{endpoint}?{query_string}"
+            
+            # FIXED: Ensure endpoint is a full URL
+            if not endpoint.startswith('http'):
+                url = f"https://{host}{endpoint}?{query_string}"
+            else:
+                url = f"{endpoint}?{query_string}"
 
             data = self._make_request_with_headers(url, headers)
             
@@ -634,7 +660,7 @@ class NewsCollector:
             if len(items) < page_size:
                 break
 
-            self._sleep_between_requests(0.5)
+            self._sleep_between_requests(1.2)
 
         return articles
 
@@ -707,7 +733,6 @@ class NewsCollector:
                 summary="유럽데이터보호위원회(EDPB)가 2026년 공동 집행 주제로 'GDPR 제12-14조에 따른 투명성 및 정보 의무 준수'를 선정했습니다. 이는 개인정보 처리 시 정보주체에게 적절한 고지가 이루어지는지를 중점 점검할 예정입니다.",
                 category="policy",
             ),
-            # ... (rest of sample articles)
         ]
 
         self.articles = sample_articles
