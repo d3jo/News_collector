@@ -12,7 +12,7 @@ https://news-collector.streamlit.app/
 
 ---
 
-## 🚀 What This Does
+## About the News Collector
 
 This application automatically retrieves privacy-related news published within the last **48 hours**.
 
