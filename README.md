@@ -35,8 +35,8 @@ Originally developed as outsourced work for a research startup that required dai
 
 It uses 6 news source APIs to fetch the hottest news on web. Namely, NewsAPI, MediaStack, Currents, etc.
 
-It uses strict filtering algorithm on the 48-hour window fetched news articles, then filter duplicated news from there because same news from different sources are collected very often.
-
-After filtering, it picks the top 20 articles from there. The newses are requested to be categorized into 4 topics, so it focuses on the newest articles, even distribution of categories, duplicate avoidance.
-
-OpenAI API was used to summarize each 20 articles in a 3-4 bullet point which is the core automation process they requested for.
+- It uses strict filtering algorithm on the 48-hour window fetched news articles
+- Then filter duplicated news from there because same news from different sources are collected very often.
+- After filtering, it picks the top 20 articles from there.
+-  The newses are requested to be categorized into 4 topics, so it focuses on the newest articles, even distribution of categories, duplicate avoidance.
+-  OpenAI API was used to summarize each 20 articles in a 3-4 bullet point which is the core automation process they requested for.
