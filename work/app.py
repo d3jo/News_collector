@@ -24,7 +24,10 @@ load_dotenv()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 
-st.set_page_config(page_title="Privacy News Monitor", page_icon="🛡️", layout="wide")
+st.set_page_config(
+    page_title="Privacy News Report", 
+    page_icon="🛡️", 
+    layout="wide")
 
 # Initialize theme in session state
 if 'dark_mode' not in st.session_state:
@@ -38,8 +41,10 @@ def toggle_theme():
 if st.session_state.dark_mode:
     # Dark mode colors
     bg_color = "#0e1117"
+    bg_color_opp = "#ffffff"
     secondary_bg = "#262730"
     text_color = "#fafafa"
+    text_color_opp = "#262730"
     border_color = "#444"
     card_bg = "#1e1e1e"
     header_color = "#fafafa"
@@ -49,8 +54,10 @@ if st.session_state.dark_mode:
 else:
     # Light mode colors
     bg_color = "#ffffff"
+    bg_color_opp = "#0e1117"
     secondary_bg = "#f0f2f6"
     text_color = "#262730"
+    text_color_opp = "#fafafa"
     border_color = "#e0e0e0"
     card_bg = "#ffffff"
     header_color = "#262730"
@@ -73,7 +80,7 @@ st.markdown(f"""
     
     /* Toolbar at the top */
     .stApp > header {{
-        background-color: {bg_color} !important;
+        background-color: {bg_color_opp} !important;
     }}
     
     /* Main content area */
