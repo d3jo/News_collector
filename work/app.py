@@ -473,19 +473,30 @@ def pick_20_diverse(articles: list[Article], per_cat: int = 5, total: int = 20) 
 
 @st.cache_data(show_spinner=False)
 def translate_title_ko(title: str) -> str:
+    """✅ FIXED: Use correct OpenAI API"""
     if not title:
         return title
-    resp = client.responses.create(
-        model="gpt-4.1-mini",
-        input=f"""Translate this news headline into natural Korean.
+    
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are a translator that converts English news headlines to natural Korean."},
+                {"role": "user", "content": f"""Translate this news headline into natural Korean.
 Rules:
 - Keep proper nouns (company/product/person names) in English if commonly used.
 - Keep it short like a real Korean headline.
 - Output ONLY the translated headline.
 
-Headline: {title}"""
-    )
-    return resp.output_text.strip()
+Headline: {title}"""}
+            ],
+            temperature=0.7,
+            max_tokens=200
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"Translation error: {e}")
+        return title  # Return original title if translation fails
 
 
 
@@ -534,7 +545,8 @@ if run:
         for a in articles:
             try:
                 a.title = translate_title_ko(a.title)
-            except Exception:
+            except Exception as e:
+                print(f"Translation failed for article: {e}")
                 pass
 
     # Generate Korean summaries (optional)
@@ -544,7 +556,8 @@ if run:
             seed_text = getattr(a, "summary", None) or getattr(a, "description", None)
             try:
                 a.summary = cached_korean_md(a.title, seed_text, a.source)
-            except Exception:
+            except Exception as e:
+                print(f"Summary generation failed: {e}")
                 a.summary = None
 
 
