@@ -1,16 +1,32 @@
-# How to use this application
+# 🛡️ Privacy News Monitor
 
-### Click this link! -> https://news-collector.streamlit.app/ 
+> Automated 48-hour privacy news aggregation system  
+> Built for a research startup to streamline daily monitoring
 
+---
 
+## 🌐 Live Application
 
+🔗 **Try it here:**  
+https://news-collector.streamlit.app/
 
-# How to Run Locally
+---
 
-For first time users, run the following commands in order:
-###
-#### pip install -r requirements.txt
-#### cp ./privacy_news_algorithm/.env.example .env
-#### python -m streamlit run app.py --server.port 8501 --server.address 0.0.0.0
+## 🚀 What This Does
 
+This application automatically retrieves privacy-related news published within the last **48 hours**.
 
+Originally developed as outsourced work for a research startup that required daily monitoring of privacy-focused news.
+
+### Before Automation
+- Manual collection process
+- ~3 hours per day
+- Required active searching and filtering
+
+### After Automation
+- Fully automated pipeline
+- Under 3 minutes runtime
+- Significant time savings
+- Streamlined daily workflow
+
+---
