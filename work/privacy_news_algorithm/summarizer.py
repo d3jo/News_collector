@@ -20,11 +20,15 @@ def summarize_korean_bullets(title: str, desc: str | None, source: str):
 {seed}
 """
 
-    resp = client.responses.create(
-        model="gpt-4.1-mini",
-        input=prompt,
+    response = client.chat.completions.create(  # ← Correct method
+        model="gpt-4o-mini",
+        messages=[  # ← Correct parameter
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": prompt}
+        ],
+        temperature=0.7,
+        max_tokens=500
     )
-
-    text = resp.output_text.strip()
+    text = response.choices[0].message.content.strip()  # ← Correct extraction
     bullets = [line.strip("-• ").strip() for line in text.splitlines() if line.strip()]
     return bullets
