@@ -309,21 +309,102 @@ class NewsCollector:
         return out
 
     def _categorize_article(self, title: str, summary: str = "") -> str:
-        """기사 카테고리 분류 (4개 카테고리만 허용: policy/incident/technology/general)"""
-        allowed = {"policy", "incident", "technology", "general"}
-
+        """
+        개선된 카테고리 분류 - 구체적인 카테고리 우선
+        
+        Priority order (most specific → most general):
+        1. incident (breaches, hacks, investigations, fines)
+        2. technology (AI, encryption, new tech, tools)
+        3. policy (laws, regulations, compliance)
+        4. general (fallback)
+        """
         title_str = str(title) if title else ""
         summary_str = str(summary) if summary else ""
         text = (title_str + " " + summary_str).lower()
-
-        # Only consider allowed categories from config
-        for category, keywords in (CATEGORIES or {}).items():
-            if category not in allowed or category == "general":
-                continue
-            if any(str(kw).lower() in text for kw in (keywords or [])):
-                return category
-
-        # fallback
+        
+        # INCIDENT - Most specific (actual events)
+        incident_keywords = [
+            # Direct incidents
+            "breach", "breached", "hack", "hacked", "cyberattack", "cyber-attack",
+            "ransomware", "malware", "data leak", "leaked", "exposed", "compromised",
+            # Legal consequences
+            "investigation", "investigated", "probe", "probing",
+            "lawsuit", "sued", "suing", "settlement",
+            "fine", "fined", "penalty", "penalties",
+            "charged", "indicted", "convicted",
+            # Violations
+            "violation", "violated", "violating",
+            "ftc action", "enforcement action", "crackdown",
+            # Threats
+            "scam", "fraud", "phishing", "identity theft",
+            "unauthorized access", "security incident"
+        ]
+        
+        # TECHNOLOGY - Specific tech innovations
+        technology_keywords = [
+            # AI and ML
+            "artificial intelligence", "machine learning", "ai model", "ai system",
+            "large language model", "llm", "chatgpt", "generative ai",
+            # Biometrics and recognition
+            "facial recognition", "face recognition", "biometric", "fingerprint",
+            # Privacy tech
+            "encryption", "encrypted", "end-to-end encryption",
+            "anonymization", "pseudonymization",
+            "privacy-enhancing technology", "pet",
+            "zero-knowledge", "differential privacy",
+            # Tracking tech
+            "cookie", "third-party cookie", "tracking pixel",
+            "browser fingerprinting", "device fingerprint",
+            # Tools and solutions
+            "vpn", "privacy tool", "privacy app",
+            "data minimization tool", "consent management",
+            # Blockchain and crypto
+            "blockchain", "cryptocurrency", "web3",
+            # Specific platforms
+            "tiktok privacy", "meta privacy", "google privacy settings"
+        ]
+        
+        # POLICY - Regulations and laws (broader)
+        policy_keywords = [
+            # Major privacy laws
+            "gdpr", "general data protection regulation",
+            "ccpa", "california consumer privacy act",
+            "cpra", "california privacy rights act",
+            "coppa", "hipaa", "ferpa", "glba",
+            # Legislative terms
+            "bill", "legislation", "legislative",
+            "privacy law", "privacy act", "data protection act",
+            "privacy legislation", "privacy bill",
+            # Regulatory terms
+            "regulation", "regulatory framework",
+            "compliance requirement", "regulatory compliance",
+            "privacy framework", "policy framework",
+            # Government bodies
+            "ftc", "federal trade commission",
+            "fcc", "sec", "attorney general",
+            "privacy commission", "data protection authority",
+            "dpa", "supervisory authority",
+            # Legal processes (NOT incidents)
+            "court ruling", "legal opinion", "guidance",
+            "congressional", "senate", "parliament"
+        ]
+        
+        # Check INCIDENT first (most specific)
+        for keyword in incident_keywords:
+            if keyword in text:
+                return "incident"
+        
+        # Check TECHNOLOGY second
+        for keyword in technology_keywords:
+            if keyword in text:
+                return "technology"
+        
+        # Check POLICY third
+        for keyword in policy_keywords:
+            if keyword in text:
+                return "policy"
+        
+        # Fallback to GENERAL
         return "general"
 
     def _is_within_time_window(self, published_date: datetime) -> bool:
