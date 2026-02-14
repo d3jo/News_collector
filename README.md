@@ -40,3 +40,14 @@ It uses 6 news source APIs to fetch the hottest news on web. Namely, NewsAPI, Me
 - After filtering, it picks the top 20 articles from there.
 -  The newses are requested to be categorized into 4 topics, so it focuses on the newest articles, even distribution of categories, duplicate avoidance.
 -  OpenAI API was used to summarize each 20 articles in a 3-4 bullet point which is the core automation process they requested for.
+
+
+
+## How it runs technically
+
+1. Collects articles (In English) ✅ 
+2. Deduplicates on English titles (catches "re-evaluate" vs "review") ✅ 
+3. Filters for privacy relevance ✅ 
+3. Selects 20 diverse articles ✅ 
+4. Translates to Korean (fewer articles = faster + cheaper) ✅ 
+5. Then summarizes in Korean ✅ 
