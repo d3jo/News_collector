@@ -142,10 +142,9 @@ if st.sidebar.button(theme_button_label, use_container_width=True):
     toggle_theme()
     st.rerun()
 
-st.sidebar.divider()
 
 # Deduplication settings
-st.sidebar.subheader("🔍 Deduplication Settings")
+
 
 if DEDUP_AVAILABLE:
     use_sbert_dedup = st.sidebar.checkbox(
