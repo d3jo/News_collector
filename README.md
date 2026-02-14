@@ -43,7 +43,7 @@ It uses 6 news source APIs to fetch the hottest news on web. Namely, NewsAPI, Me
 
 
 
-## How it runs technically
+## Technical Process
 
 1. Collects articles (In English) ✅ 
 2. Deduplicates on English titles (catches "re-evaluate" vs "review") ✅ 
