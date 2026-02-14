@@ -22,15 +22,20 @@ def summarize_korean_bullets(title: str, desc: str | None, source: str):
     client = get_client()  # Create client lazily, AFTER dotenv loads
 
     seed = desc or ""
-    prompt = f"""다음 뉴스 기사를 한국어로 3~5개의 불릿포인트로 요약해 주세요.
-각 불릿포인트는 핵심 내용만 간결하게 작성하세요.
+    prompt = f"""다음 뉴스 기사를 한국어로 한 문장의 개조식으로 요약해 주세요.
+
+[작성 규칙]
+- 완전한 문장 구조를 갖추되, 개조식으로 작성할것
+- "~함", "~됨", "~예정", "~논란" 형태로 간결하게 작성
+- 150자 내외의 문장길이 권장
+
 
 제목: {title}
 출처: {source}
 내용:
 {seed}
 
-요약 (불릿포인트로):"""
+:"""
 
     try:
         response = client.chat.completions.create(  # Correct method

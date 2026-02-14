@@ -160,7 +160,7 @@ format_choice = st.sidebar.selectbox("Output format", ["category", "simple", "de
 st.subheader("Latest Privacy Monitor")
 st.caption("One click. Latest privacy news. Categorized into 정책/규제, 사건/조사, 신기술, 기타.")
 
-run = st.button("🔄 Refresh", type="primary")
+run = st.button("🔄 뉴스 갱신 (Fetch News)", type="primary")
 
 MONITOR_QUERY = '"data privacy" OR "privacy law" OR "privacy regulation" OR "privacy breach" OR GDPR OR privacy OR "privacy policy" OR "privacy violation" OR "privacy protection" OR "data protection" OR "personal data" OR "consumer privacy" OR "privacy rights" OR "user privacy" OR "information privacy"'
 QUERY_NEWSAPI = MONITOR_QUERY
