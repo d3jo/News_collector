@@ -791,34 +791,6 @@ class NewsCollector:
         self.articles = all_articles[:MAX_ARTICLES]
         return self.articles
 
-    def add_sample_articles(self) -> List[Article]:
-        """샘플 기사 추가 (API 키가 없을 때 사용)"""
-        now = datetime.now(timezone.utc)
-
-        sample_articles = [
-            Article(
-                title="New State Privacy Laws Expand Consumer Data Control in 2026",
-                url="https://natlawreview.com/article/new-state-privacy-laws-expand-consumer-data-control-2026",
-                source="National Law Review",
-                published_date=now - timedelta(hours=6),
-                author="Privacy Law Team",
-                summary="Indiana, Kentucky, Rhode Island 등 3개 주의 새로운 개인정보보호법이 2026년 1월 1일부로 시행되어 미국 내 포괄적 개인정보보호법을 시행하는 주가 총 20개로 증가했습니다. 소비자들은 개인 데이터에 대한 접근, 수정, 삭제 및 타겟 광고, 판매, 프로파일링에 대한 거부권을 갖게 됩니다.",
-                category="policy",
-            ),
-            Article(
-                title="EDPB Selects Transparency as 2026 Coordinated Enforcement Focus",
-                url="https://www.edpb.europa.eu/news/news/2025/coordinated-enforcement-framework-edpb-selects-topic-2026_en",
-                source="European Data Protection Board",
-                published_date=now - timedelta(hours=12),
-                author="EDPB Press Office",
-                summary="유럽데이터보호위원회(EDPB)가 2026년 공동 집행 주제로 'GDPR 제12-14조에 따른 투명성 및 정보 의무 준수'를 선정했습니다. 이는 개인정보 처리 시 정보주체에게 적절한 고지가 이루어지는지를 중점 점검할 예정입니다.",
-                category="policy",
-            ),
-        ]
-
-        self.articles = sample_articles
-        return self.articles
-
 
 def create_collector(gnews_api_key: Optional[str] = None, newsapi_key: Optional[str] = None) -> NewsCollector:
     """NewsCollector 인스턴스 생성 팩토리 함수"""

@@ -71,36 +71,9 @@ def main():
     # 뉴스 수집
     print("개인정보 보호 관련 뉴스를 수집 중입니다...", file=sys.stderr)
 
-    if args.use_sample or (not gnews_key and not newsapi_key):
-        if not args.use_sample:
-            print("API 키가 설정되지 않았습니다. 샘플 데이터를 사용합니다.", file=sys.stderr)
-        articles = collector.add_sample_articles()
-    else:
-        articles = collector.collect_all()
-
-    if not articles:
-        print("수집된 기사가 없습니다.", file=sys.stderr)
-        return 1
-
-    print(f"총 {len(articles)}개의 기사를 수집했습니다.", file=sys.stderr)
 
     # 포맷터 생성 및 출력 생성
     formatter = create_formatter(use_emoji=args.use_emoji)
-
-    if args.format == "category":
-        output = formatter.format_by_category(articles)
-    elif args.format == "simple":
-        output = formatter.format_simple_list(articles)
-    else:
-        output = formatter.format_article_list(articles)
-
-    # 출력
-    if args.output:
-        with open(args.output, "w", encoding="utf-8") as f:
-            f.write(output)
-        print(f"리포트가 {args.output}에 저장되었습니다.", file=sys.stderr)
-    else:
-        print(output)
 
     return 0
 
