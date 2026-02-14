@@ -142,39 +142,17 @@ if st.sidebar.button(theme_button_label, use_container_width=True):
     toggle_theme()
     st.rerun()
 
+st.sidebar.divider()
 
-# Deduplication settings
-
-
+# Deduplication settings (hidden but active)
+# SBERT deduplication runs automatically with optimal settings
 if DEDUP_AVAILABLE:
-    use_sbert_dedup = st.sidebar.checkbox(
-        "Use Sentence-BERT Deduplication",
-        value=True,
-        help="Uses AI to detect semantically similar articles (recommended)"
-    )
-    
-    if use_sbert_dedup:
-        similarity_threshold = st.sidebar.slider(
-            "Similarity Threshold",
-            min_value=0.75,
-            max_value=0.95,
-            value=0.82,
-            step=0.01,
-            help="Lower = more duplicates removed. 0.80-0.85 recommended."
-        )
-        st.sidebar.caption(f"Current: {similarity_threshold:.2f}")
-        
-        if similarity_threshold >= 0.88:
-            st.sidebar.caption("⚠️ Conservative")
-        elif similarity_threshold <= 0.78:
-            st.sidebar.caption("⚠️ Aggressive")
-        else:
-            st.sidebar.caption("✅ Balanced")
+    use_sbert_dedup = True  # Always enabled
+    similarity_threshold = 0.82  # Optimal balanced setting
 else:
     use_sbert_dedup = False
-    st.sidebar.info("Install sentence-transformers to enable AI deduplication")
+    similarity_threshold = 0.82
 
-st.sidebar.divider()
 
 format_choice = st.sidebar.selectbox("Output format", ["category", "simple", "detailed"], index=0)
 
@@ -263,7 +241,7 @@ def dedupe_with_sbert_titles(
     
     # Step 1: Basic dedupe
     if progress_callback:
-        progress_callback("1️⃣ 기본 중복 제거 (URL/exact title)...")
+        progress_callback("1️⃣ 키워드 기반 중복 제거중 (URL/exact title)...")
     
     articles = dedupe_keep_latest(articles)
     after_basic = len(articles)
@@ -273,7 +251,7 @@ def dedupe_with_sbert_titles(
     
     # Step 2: SBERT title embedding
     if progress_callback:
-        progress_callback("2️⃣ AI 제목 임베딩 생성 중...")
+        progress_callback("2️⃣ AI 제목 벡터 임베딩 생성 중...")
     
     try:
         deduplicator = get_sbert_deduplicator()
@@ -291,7 +269,7 @@ def dedupe_with_sbert_titles(
             embedding = deduplicator.create_embedding(text_to_embed)
             embeddings.append(embedding)
             
-            if idx % 20 == 0 and progress_callback:
+            if idx % 5 == 0 and progress_callback:
                 progress_callback(f"2️⃣ 임베딩: {idx}/{len(articles)}")
         
         if progress_callback:
@@ -351,12 +329,6 @@ def dedupe_with_sbert_titles(
         if progress_callback:
             progress_callback(f"✅ AI 중복 제거 완료: {num_removed}개 제거")
             
-            if removed_items:
-                for item in removed_items[:3]:  # Show first 3
-                    progress_callback(
-                        f"  📋 [{item['source']}] 유사도 {item['similarity']:.2f}: "
-                        f"{item['removed_title'][:50]}..."
-                    )
         
         return deduplicated, num_removed
         
@@ -506,7 +478,6 @@ if run:
     def update_progress(msg):
         progress_placeholder.info(msg)
     
-    st.info("🔄 중복 제거 시작 (영문 제목 기준)")
     
     if use_sbert_dedup and DEDUP_AVAILABLE:
         with st.spinner("🤖 AI 기반 의미 분석 중복 제거..."):
@@ -514,9 +485,6 @@ if run:
                 articles,
                 similarity_threshold=similarity_threshold,
                 progress_callback=update_progress
-            )
-            progress_placeholder.success(
-                f"✅ 중복 제거 완료: {num_removed}개 제거 → {len(articles)}개 남음"
             )
     else:
         with st.spinner("기본 중복 제거..."):
@@ -526,9 +494,11 @@ if run:
             st.info(f"기본 중복 제거: {num_removed}개 제거 → {len(articles)}개 남음")
     
     # === STEP 3: FILTER ===
-    with st.spinner("🔍 개인정보 관련성 필터링..."):
+    # === STEP 3: FILTER ===
+    with st.spinner("🔍 개인정보 관련성 필터링 중..."):
+        before_filter = len(articles)
         privacy_articles = [a for a in articles if is_privacy_relevant(a)]
-        st.info(f"✅ 개인정보 관련: {len(privacy_articles)}개 / {len(articles)}개")
+        after_filter = len(privacy_articles)
         articles = privacy_articles
 
     if not articles:
