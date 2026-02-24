@@ -15,6 +15,18 @@ import socket
 from difflib import SequenceMatcher
 from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
 
+# Semantic deduplication via sentence embeddings
+try:
+    from sentence_transformers import SentenceTransformer, util as st_util
+    SBERT_AVAILABLE = True
+except ImportError:
+    SBERT_AVAILABLE = False
+    print(
+        "Warning: sentence-transformers not installed. "
+        "Semantic deduplication will be skipped. "
+        "Run: pip install sentence-transformers"
+    )
+
 
 @dataclass
 class Article:
@@ -50,21 +62,17 @@ def normalize_url(url: str) -> str:
     try:
         p = urlparse(url)
     except Exception:
-        # fallback
         return url.lower().split("#")[0].split("?")[0].rstrip("/").strip()
 
-    # Normalize scheme + host
     scheme = "https"
     netloc = (p.netloc or "").lower()
     if netloc.startswith("www."):
         netloc = netloc[4:]
 
-    # Normalize path
     path = (p.path or "").strip()
     if path != "/" and path.endswith("/"):
         path = path[:-1]
 
-    # Remove tracking params but keep meaningful ones
     drop_prefixes = ("utm_",)
     drop_exact = {
         "gclid", "fbclid", "yclid", "mc_cid", "mc_eid", "ref", "ref_src",
@@ -83,8 +91,8 @@ def normalize_url(url: str) -> str:
     qs.sort()
     query = urlencode(qs, doseq=True)
 
-    # Drop fragment
     return urlunparse((scheme, netloc, path, "", query, ""))
+
 
 def normalize_title(title: str) -> str:
     """제목 정규화 - 소스 접미사/특수문자/공백 정리"""
@@ -92,31 +100,24 @@ def normalize_title(title: str) -> str:
         return ""
 
     t = title.lower().strip()
-
-    # Remove common suffix patterns
-    t = re.sub(r"\s*\|\s*.+$", "", t)        # drop anything after "|"
-    t = re.sub(r"\s*-\s*reuters\s*$", "", t) # drop "- Reuters" etc.
-
-    # Remove punctuation -> spaces
+    t = re.sub(r"\s*\|\s*.+$", "", t)
+    t = re.sub(r"\s*-\s*reuters\s*$", "", t)
     t = re.sub(r"[^\w\s]", " ", t)
-
-    # Collapse whitespace
     t = " ".join(t.split())
     return t
+
 
 def titles_are_similar(title1: str, title2: str, threshold: float = 0.85) -> bool:
     """두 제목이 유사한지 확인 (85% 유사도 기준)"""
     if not title1 or not title2:
         return False
-    
+
     norm1 = normalize_title(title1)
     norm2 = normalize_title(title2)
-    
-    # Exact match
+
     if norm1 == norm2:
         return True
-    
-    # Similarity check
+
     ratio = SequenceMatcher(None, norm1, norm2).ratio()
     return ratio >= threshold
 
@@ -125,24 +126,29 @@ class NewsCollector:
     """뉴스 수집기 클래스"""
 
     def __init__(self, gnews_api_key: Optional[str] = None, newsapi_key: Optional[str] = None):
-        """
-        Args:
-            gnews_api_key: GNews API 키 (선택)
-            newsapi_key: NewsAPI 키 (선택)
-        """
         self.gnews_api_key = gnews_api_key or os.environ.get("GNEWS_API_KEY")
         self.newsapi_key = newsapi_key or os.environ.get("NEWSAPI_KEY")
-        
-        # Additional news sources for more article coverage
+
         self.mediastack_key = os.environ.get("MEDIASTACK_API_KEY")
         self.currents_key = os.environ.get("CURRENTS_API_KEY")
         self.newsdata_key = os.environ.get("NEWSDATA_API_KEY")
         self.rapidapi_key = os.environ.get("RAPIDAPI_KEY")
-        
+
         self.articles: List[Article] = []
 
+        # Load semantic embedding model once at startup.
+        # all-MiniLM-L6-v2 is ~90MB, fast, and well-suited for short texts like news titles.
+        # Downloaded automatically on first run and cached by sentence-transformers.
+        if SBERT_AVAILABLE:
+            try:
+                self._embedder = SentenceTransformer("all-MiniLM-L6-v2")
+            except Exception as e:
+                print(f"Warning: Could not load sentence-transformer model: {e}")
+                self._embedder = None
+        else:
+            self._embedder = None
+
     def _sleep_between_requests(self, seconds: float = 1.2):
-        """Sleep between requests to avoid rate limits - INCREASED from 1.0 to 1.2"""
         time.sleep(seconds)
 
     def _make_request_with_headers(self, url: str, headers: Dict[str, str]) -> Optional[Dict]:
@@ -153,7 +159,7 @@ class NewsCollector:
         except urllib.error.HTTPError as e:
             if e.code == 429:
                 print(f"Rate limit (429) hit for: {url}. Sleeping 5 seconds...")
-                time.sleep(5)  # Extra sleep on rate limit
+                time.sleep(5)
             else:
                 print(f"HTTP Error {e.code}: {e} | URL: {url}")
             return None
@@ -169,7 +175,7 @@ class NewsCollector:
         except urllib.error.HTTPError as e:
             if e.code == 429:
                 print(f"Rate limit (429) hit for: {url}. Sleeping 5 seconds...")
-                time.sleep(5)  # Extra sleep on rate limit
+                time.sleep(5)
             else:
                 print(f"HTTP Error {e.code}: {e} | URL: {url}")
             return None
@@ -178,7 +184,6 @@ class NewsCollector:
             return None
 
     def _parse_date(self, date_str: str) -> Optional[datetime]:
-        """다양한 날짜 형식 파싱"""
         formats = [
             "%Y-%m-%dT%H:%M:%SZ",
             "%Y-%m-%dT%H:%M:%S.%fZ",
@@ -198,63 +203,66 @@ class NewsCollector:
             except ValueError:
                 continue
         return None
-    
+
     def _is_duplicate(self, article: Article, seen_urls: set, seen_titles: List[str]) -> bool:
-        """
-        중복 체크: URL 정규화 + 제목 유사도 검사
-        """
         norm_url = normalize_url(article.url)
         norm_title = normalize_title(article.title)
-        
-        # Check normalized URL
+
         if norm_url and norm_url in seen_urls:
             return True
-        
-        # Check title similarity with all seen titles
+
         for seen_title in seen_titles:
             if titles_are_similar(norm_title, seen_title):
                 return True
-        
+
         return False
-    
+
     def _deduplicate(self, articles: List[Article]) -> List[Article]:
         """
-        Stronger dedupe:
+        Three-stage deduplication:
         1) Canonical URL exact match
-        2) Normalized title exact match
-        3) Fuzzy title match within same first-8-words bucket
-        Also keeps the best version (newer + better summary).
+        2) Normalized title exact match + fuzzy SequenceMatcher (within bucket)
+        3) TF-IDF cosine similarity on title+summary (catches same-story, different-wording)
         """
         if not articles:
             return []
 
-        # Work newest-first so "best pick" is stable
+        # Stage 1 & 2: URL + title dedup (existing logic)
+        articles = self._deduplicate_structural(articles)
+
+        # Stage 3: Semantic dedup via sentence-transformers
+        if SBERT_AVAILABLE and self._embedder is not None and len(articles) > 1:
+            articles = self._deduplicate_by_tfidf(articles)
+
+        return articles
+
+    def _deduplicate_structural(self, articles: List[Article]) -> List[Article]:
+        """
+        Original dedup logic: URL exact match + title exact/fuzzy match.
+        Extracted into its own method so _deduplicate stays clean.
+        """
+        if not articles:
+            return []
+
         ordered = sorted(
             articles,
             key=lambda x: x.published_date or datetime.min.replace(tzinfo=timezone.utc),
-            reverse=True
+            reverse=True,
         )
 
         by_url: Dict[str, Article] = {}
         by_title: Dict[str, Article] = {}
-
-        # bucket_key -> list of normalized titles we've kept in that bucket
         buckets: Dict[str, List[str]] = {}
 
         def better(a: Article, b: Article) -> Article:
-            """Pick the better of two duplicates."""
             da = a.published_date or datetime.min.replace(tzinfo=timezone.utc)
             db = b.published_date or datetime.min.replace(tzinfo=timezone.utc)
-            # prefer newer
             if db > da:
                 a, b = b, a
-
-            # prefer longer summary
             sa = len((a.summary or "").strip())
             sb = len((b.summary or "").strip())
             if sb > sa:
                 a = b
-
             return a
 
         out: List[Article] = []
@@ -280,11 +288,11 @@ class NewsCollector:
                     by_title[norm_title] = better(existing, art)
                     continue
 
-            # 3) fuzzy title dedupe (bucketed)
+            # 3) fuzzy title dedupe (bucketed by first 8 words)
             is_dup = False
             if norm_title:
                 words = norm_title.split()
-                bucket_key = " ".join(words[:8]) if words else norm_title  # cheap locality trick
+                bucket_key = " ".join(words[:8]) if words else norm_title
                 candidates = buckets.get(bucket_key, [])
 
                 for seen_norm_title in candidates:
@@ -295,23 +303,103 @@ class NewsCollector:
                 if is_dup:
                     continue
 
-                # record bucket
                 buckets.setdefault(bucket_key, []).append(norm_title)
 
-            # keep
             out.append(art)
             if norm_url:
                 by_url[norm_url] = art
             if norm_title:
                 by_title[norm_title] = art
 
-        # out currently newest-first; return newest-first (fine), or reverse if you want oldest-first
         return out
+
+    def _deduplicate_by_tfidf(
+        self,
+        articles: List[Article],
+        threshold: float = 0.85,
+        same_day_only: bool = True,
+    ) -> List[Article]:
+        """
+        Semantic deduplication using sentence-transformer embeddings.
+
+        Unlike TF-IDF (which only measures word overlap), sentence-transformers
+        map text into a semantic vector space — so "Delhi HC notice" and
+        "Delhi High Court Challenges" are understood as nearly identical,
+        even though they share almost no words.
+
+        Args:
+            articles:      Pre-structurally-deduped article list.
+            threshold:     Cosine similarity cutoff (0.0–1.0).
+                           0.85 is a good default for news deduplication:
+                           - Raise to 0.90 if unrelated articles are being incorrectly merged.
+                           - Lower to 0.80 if same-story duplicates are still slipping through.
+            same_day_only: Only compare articles published on the same UTC date.
+                           Prevents false positives on recurring topics (e.g. annual
+                           "Privacy Day" articles) and speeds up the O(n²) pass.
+
+        Returns:
+            Deduplicated list. When two articles are duplicates, the one with
+            the longer summary is kept. Order is preserved (newest-first).
+        """
+        if not SBERT_AVAILABLE or self._embedder is None or len(articles) < 2:
+            return articles
+
+        # Title repeated twice to weight it more heavily than the summary,
+        # since titles are the most reliable signal for same-story detection.
+        texts = [
+            f"{a.title} {a.title} {a.summary or ''}".strip()
+            for a in articles
+        ]
+
+        try:
+            # Encode all articles in one batched call (fast even for 100s of articles)
+            embeddings = self._embedder.encode(
+                texts,
+                convert_to_tensor=True,
+                show_progress_bar=False,
+                batch_size=64,
+            )
+        except Exception as e:
+            print(f"Warning: Semantic embedding failed, skipping semantic dedup: {e}")
+            return articles
+
+        n = len(articles)
+        kept = [True] * n
+
+        for i in range(n):
+            if not kept[i]:
+                continue
+
+            for j in range(i + 1, n):
+                if not kept[j]:
+                    continue
+
+                # Only compare articles from the same calendar day to
+                # avoid false positives on similar-but-unrelated recurring topics
+                if same_day_only:
+                    date_i = (articles[i].published_date or datetime.min.replace(tzinfo=timezone.utc)).date()
+                    date_j = (articles[j].published_date or datetime.min.replace(tzinfo=timezone.utc)).date()
+                    if date_i != date_j:
+                        continue
+
+                sim = float(st_util.cos_sim(embeddings[i], embeddings[j]))
+
+                if sim >= threshold:
+                    # Keep whichever has the longer summary; discard the other
+                    len_i = len((articles[i].summary or "").strip())
+                    len_j = len((articles[j].summary or "").strip())
+                    if len_j > len_i:
+                        kept[i] = False
+                        break  # i is gone; stop comparing it
+                    else:
+                        kept[j] = False
+
+        return [a for a, keep in zip(articles, kept) if keep]
 
     def _categorize_article(self, title: str, summary: str = "") -> str:
         """
         개선된 카테고리 분류 - 구체적인 카테고리 우선
-        
+
         Priority order (most specific → most general):
         1. incident (breaches, hacks, investigations, fines)
         2. technology (AI, encryption, new tech, tools)
@@ -321,104 +409,77 @@ class NewsCollector:
         title_str = str(title) if title else ""
         summary_str = str(summary) if summary else ""
         text = (title_str + " " + summary_str).lower()
-        
-        # INCIDENT - Most specific (actual events)
+
         incident_keywords = [
-            # Direct incidents
             "breach", "breached", "hack", "hacked", "cyberattack", "cyber-attack",
             "ransomware", "malware", "data leak", "leaked", "exposed", "compromised",
-            # Legal consequences
             "investigation", "investigated", "probe", "probing",
             "lawsuit", "sued", "suing", "settlement",
             "fine", "fined", "penalty", "penalties",
             "charged", "indicted", "convicted",
-            # Violations
             "violation", "violated", "violating",
             "ftc action", "enforcement action", "crackdown",
-            # Threats
             "scam", "fraud", "phishing", "identity theft",
             "unauthorized access", "security incident"
         ]
-        
-        # TECHNOLOGY - Specific tech innovations
+
         technology_keywords = [
-            # AI and ML
             "artificial intelligence", "machine learning", "ai model", "ai system",
             "large language model", "llm", "chatgpt", "generative ai",
-            # Biometrics and recognition
             "facial recognition", "face recognition", "biometric", "fingerprint",
-            # Privacy tech
             "encryption", "encrypted", "end-to-end encryption",
             "anonymization", "pseudonymization",
             "privacy-enhancing technology", "pet",
             "zero-knowledge", "differential privacy",
-            # Tracking tech
             "cookie", "third-party cookie", "tracking pixel",
             "browser fingerprinting", "device fingerprint",
-            # Tools and solutions
             "vpn", "privacy tool", "privacy app",
             "data minimization tool", "consent management",
-            # Blockchain and crypto
             "blockchain", "cryptocurrency", "web3",
-            # Specific platforms
             "tiktok privacy", "meta privacy", "google privacy settings"
         ]
-        
-        # POLICY - Regulations and laws (broader)
+
         policy_keywords = [
-            # Major privacy laws
             "gdpr", "general data protection regulation",
             "ccpa", "california consumer privacy act",
             "cpra", "california privacy rights act",
             "coppa", "hipaa", "ferpa", "glba",
-            # Legislative terms
             "bill", "legislation", "legislative",
             "privacy law", "privacy act", "data protection act",
             "privacy legislation", "privacy bill",
-            # Regulatory terms
             "regulation", "regulatory framework",
             "compliance requirement", "regulatory compliance",
             "privacy framework", "policy framework",
-            # Government bodies
             "ftc", "federal trade commission",
             "fcc", "sec", "attorney general",
             "privacy commission", "data protection authority",
             "dpa", "supervisory authority",
-            # Legal processes (NOT incidents)
             "court ruling", "legal opinion", "guidance",
             "congressional", "senate", "parliament"
         ]
-        
-        # Check INCIDENT first (most specific)
+
         for keyword in incident_keywords:
             if keyword in text:
                 return "incident"
-        
-        # Check TECHNOLOGY second
+
         for keyword in technology_keywords:
             if keyword in text:
                 return "technology"
-        
-        # Check POLICY third
+
         for keyword in policy_keywords:
             if keyword in text:
                 return "policy"
-        
-        # Fallback to GENERAL
+
         return "general"
 
     def _is_within_time_window(self, published_date: datetime) -> bool:
-        """48시간 이내 기사인지 확인"""
         now = datetime.now(timezone.utc)
         cutoff = now - timedelta(hours=TIME_WINDOW_HOURS)
-
         if published_date.tzinfo is None:
             published_date = published_date.replace(tzinfo=timezone.utc)
-
         return published_date >= cutoff
 
     def collect_from_gnews(self, query: str) -> List[Article]:
-        """GNews API에서 뉴스 수집"""
         if not self.gnews_api_key:
             return []
 
@@ -432,10 +493,7 @@ class NewsCollector:
 
         for item in data["articles"]:
             published_date = self._parse_date(item.get("publishedAt", ""))
-            if not published_date:
-                continue
-
-            if not self._is_within_time_window(published_date):
+            if not published_date or not self._is_within_time_window(published_date):
                 continue
 
             article = Article(
@@ -455,7 +513,6 @@ class NewsCollector:
         return articles
 
     def collect_from_newsapi(self, query: str, max_pages: int = 3, page_size: int = 100) -> List[Article]:
-        """NewsAPI에서 뉴스 수집 (pagination 지원: page)"""
         if not self.newsapi_key:
             return []
 
@@ -494,12 +551,11 @@ class NewsCollector:
             if len(items) < page_size:
                 break
 
-            self._sleep_between_requests(1.0)  # Sleep between pages
+            self._sleep_between_requests(1.0)
 
         return articles
 
     def collect_from_mediastack(self, query: str, max_pages: int = 4, page_size: int = 25) -> List[Article]:
-        """MediaStack API에서 뉴스 수집 (pagination: offset)"""
         if not self.mediastack_key:
             return []
 
@@ -543,7 +599,6 @@ class NewsCollector:
         return articles
 
     def collect_from_currents(self, query: str, max_pages: int = 50) -> List[Article]:
-        """Currents API에서 뉴스 수집 (pagination: page_number)"""
         if not self.currents_key:
             return []
 
@@ -560,8 +615,8 @@ class NewsCollector:
 
             data = self._make_request(url)
             if not data:
-                break  # Stop on rate limit or error
-                
+                break
+
             items = (data or {}).get("news") or []
             if not items:
                 break
@@ -591,7 +646,6 @@ class NewsCollector:
 
         articles: List[Article] = []
         encoded_query = urllib.parse.quote(query)
-
         next_page = None
         pages = 0
 
@@ -607,8 +661,8 @@ class NewsCollector:
 
             data = self._make_request(url)
             if not data:
-                break  # Stop on rate limit or error
-                
+                break
+
             items = (data or {}).get("results") or []
             if not items:
                 break
@@ -623,7 +677,7 @@ class NewsCollector:
 
                 articles.append(Article(
                     title=item.get("title", ""),
-                    url=item.get("link", ""),
+                    url=item.get("url", item.get("link", "")),
                     source=item.get("source_id", "NewsData"),
                     published_date=published_date,
                     author=author,
@@ -660,13 +714,12 @@ class NewsCollector:
         extra_params: Optional[Dict[str, str]] = None,
         source_name: str = "RapidAPI",
     ) -> List[Article]:
-        """Generic RapidAPI news collection with configurable parameters"""
         if not self.rapidapi_key:
             return []
 
         articles: List[Article] = []
         encoded_query = urllib.parse.quote(query)
-        
+
         headers = {
             "X-RapidAPI-Key": self.rapidapi_key,
             "X-RapidAPI-Host": host,
@@ -675,23 +728,22 @@ class NewsCollector:
 
         for page in range(1, max_pages + 1):
             params = {query_param: encoded_query, page_size_param: str(page_size)}
-            
+
             if page_param:
                 params[page_param] = str(page)
-            
+
             if extra_params:
                 params.update(extra_params)
-            
+
             query_string = urllib.parse.urlencode(params)
-            
-            # FIXED: Ensure endpoint is a full URL
-            if not endpoint.startswith('http'):
+
+            if not endpoint.startswith("http"):
                 url = f"https://{host}{endpoint}?{query_string}"
             else:
                 url = f"{endpoint}?{query_string}"
 
             data = self._make_request_with_headers(url, headers)
-            
+
             if not data:
                 break
 
@@ -707,7 +759,7 @@ class NewsCollector:
             for item in items:
                 date_str = item.get(date_field, "")
                 published_date = self._parse_date(date_str) if date_str else None
-                
+
                 if not published_date or not self._is_within_time_window(published_date):
                     continue
 
@@ -750,14 +802,12 @@ class NewsCollector:
         all_articles = []
 
         for keyword in SEARCH_KEYWORDS:
-            # 각 소스에서 수집
             all_articles.extend(self.collect_from_gnews(keyword))
             all_articles.extend(self.collect_from_newsapi(keyword))
             all_articles.extend(self.collect_from_mediastack(keyword))
             all_articles.extend(self.collect_from_currents(keyword))
             all_articles.extend(self.collect_from_newsdata(keyword))
 
-            # RapidAPI에서 수집
             try:
                 rapidapi_articles = self.collect_from_rapidapi(
                     query=keyword,
@@ -781,13 +831,10 @@ class NewsCollector:
             except Exception as e:
                 print(f"RapidAPI 수집 중 오류: {e}")
 
-        # 중복 제거 (URL 정규화 + 제목 유사도)
+        # Stage 1+2: URL / title dedup  →  Stage 3: TF-IDF semantic dedup
         all_articles = self._deduplicate(all_articles)
 
-        # 날짜순 정렬 (최신순)
         all_articles.sort(key=lambda x: x.published_date, reverse=True)
-
-        # 최대 기사 수 제한
         self.articles = all_articles[:MAX_ARTICLES]
         return self.articles
 

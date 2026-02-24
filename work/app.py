@@ -8,6 +8,8 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.units import inch
 from textwrap import wrap
 import time
+import hashlib
+import datetime
 
 
 from reportlab.pdfbase import pdfmetrics
@@ -19,6 +21,29 @@ pdfmetrics.registerFont(UnicodeCIDFont("HYSMyeongJo-Medium"))
 from privacy_news_algorithm.collector import create_collector, Article
 from privacy_news_algorithm.formatter import create_formatter
 from privacy_news_algorithm.summarizer import summarize_korean_bullets
+
+
+
+
+
+APP_NAME = "Privacy News Fetcher"
+APP_VERSION = "1.0"   # 네가 관리 (v2니까 2.0.0 추천)
+APP_OWNER = "Ajun Jo"      # 원하면 팀/조직명으로 바꿔
+APP_TAGLINE = "개인정보 보호 정책 동향 모니터링"
+
+def get_build_id() -> str:
+    """
+    배포/커밋 기반으로 넣는 게 베스트지만,
+    일단은 환경변수 -> 없으면 짧은 해시로 fallback.
+    """
+    env = os.getenv("APP_BUILD_ID")
+    if env:
+        return env[:10]
+    raw = f"{APP_NAME}:{APP_VERSION}"
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:10]
+
+BUILD_ID = get_build_id()
+
 
 # Import Sentence-BERT deduplication
 try:
@@ -557,3 +582,31 @@ if run:
 
 else:
     st.info("Click 🔄 Refresh to fetch the latest 20 categorized articles.")
+
+
+
+
+
+
+
+
+st.sidebar.divider()
+st.sidebar.markdown("### 🧾 App Signature")
+st.sidebar.caption(f"**{APP_NAME}** · v{APP_VERSION} · build `{BUILD_ID}`")
+st.sidebar.caption(f"© {datetime.date.today().year} Developed by {APP_OWNER}")
+st.sidebar.caption("Data: GNews / NewsAPI / NewsData · Summary: OpenAI")
+
+
+
+st.markdown(
+    f"""
+<div class="footer-signature">
+  <span><strong>{APP_NAME}</strong> — {APP_TAGLINE}</span>
+  &nbsp;·&nbsp;
+  <span class="mono">v{APP_VERSION} / build {BUILD_ID}</span>
+  &nbsp;·&nbsp;
+  <span>© {datetime.date.today().year} {APP_OWNER}</span>
+</div>
+""",
+    unsafe_allow_html=True
+)
